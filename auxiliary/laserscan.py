@@ -774,10 +774,6 @@ class MultiSemLaserScan():
     return self.scans[idx]
 
   def open_multiple_scans(self, scan_names, label_names, poses, idx):
-    """ Open multiple raw scan and fill in attributes
-    """
-    self.reset()
-
     if self.nscans > 1:
       # use also previous scans
       number_of_prev_scans = self.nscans // 2
@@ -788,35 +784,38 @@ class MultiSemLaserScan():
       relative_idx = np.delete(relative_idx, np.where(relative_idx == 0), 0)
       # relative_idx = np.append(relative_idx, 0)
       relative_idx = np.insert(relative_idx, 0, 0)
+      ids = relative_idx + idx
+    else:
+      ids = np.array([idx])
+    self._open_multiple_scans(scan_names, label_names, poses, ids,
+                              primary_scan=ids[0])
 
-      for i, scan in enumerate(self.scans):
-        scan_idx = idx + relative_idx[i]
-        print("Open scan %d/%d %d:%d" % (i + 1, self.nscans, relative_idx[i],
-                                         scan_idx + 1))
-        self.poses[i] = scan.pose = poses[scan_idx]
-        scan.open_scan(scan_names[scan_idx], self.fov_up, self.fov_down)
-        scan.open_label(label_names[scan_idx])
-        scan.colorize()
-        scan.apply_pose()
+  def _open_multiple_scans(self, scan_names, label_names, poses, ids,
+                           primary_scan=None):
+    """ Open multiple raw scan and fill in attributes
+    """
+    self.reset()
+    assert(len(ids) == self.nscans)
 
-        # remove moving classes from all but primary scan
-        if i != 0:
-          scan.remove_classes(self.moving_classes)
+    for i, (scan_idx, scan) in enumerate(zip(ids, self.scans)):
+      print("Open scan %d/%d:%d" % (i + 1, self.nscans, scan_idx + 1))
+      self.poses[i] = scan.pose = poses[scan_idx]
+      scan.open_scan(scan_names[scan_idx], self.fov_up, self.fov_down)
+      scan.open_label(label_names[scan_idx])
+      scan.colorize()
+      scan.apply_pose()
 
-        # remove class unlabeled (0), outlier (1)
-        scan.remove_classes(self.ignore_classes)
-
-    else:  # use a single scan
-      self.scans[0].open_scan(scan_names[idx], self.fov_up, self.fov_down)
-      self.scans[0].open_label(label_names[idx])
-      self.scans[0].colorize()
-      self.poses[0] = self.scans[0].pose = poses[idx]
-      self.scans[0].apply_pose()
+      # remove moving classes from all but primary scan
+      if scan_idx != primary_scan:
+        scan.remove_classes(self.moving_classes)
 
       # remove class unlabeled (0), outlier (1)
-      self.scans[0].remove_classes(self.ignore_classes)
+      scan.remove_classes(self.ignore_classes)
 
   def deform(self, adaption, poses, idx):
+    return self._deform(adaption, poses, poses[idx])
+
+  def _deform(self, adaption, poses, new_pose):
     """ Deforms laserscan with specified adaption method and transformation
     """
     # assert(self.scan_idx.shape[0] == self.points.shape[0])
@@ -830,7 +829,7 @@ class MultiSemLaserScan():
                                  self.color_dict, self.transformation,
                                  self.t_beam_angles)
       self.merged.reset()
-      self.merged.pose = poses[idx]
+      self.merged.pose = new_pose
 
       # Merge scans into a single scan
       for scan in self.scans:
@@ -875,7 +874,7 @@ class MultiSemLaserScan():
       for i, scan in enumerate(self.scans):
         print("Create range image %d/%d" % (i + 1, self.nscans))
         # Undo the primary pose and then do range projection
-        scan.apply_transformation(np.linalg.inv(poses[idx]))
+        scan.apply_transformation(np.linalg.inv(new_pose))
         scan.do_range_projection_new(self.fov_up, self.fov_down, remove=True)
         scan.do_label_projection_new()
         # TODO Limit range of scans instead of limit the voxel grid volume
@@ -933,7 +932,7 @@ class MultiSemLaserScan():
       #                            self.color_dict, self.transformation,
       #                            self.t_beam_angles)
       self.merged.reset()
-      self.merged.pose = poses[idx]
+      self.merged.pose = new_pose
 
       # Merge scans into a single scan
       for scan in self.scans:
